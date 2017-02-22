@@ -1,0 +1,106 @@
+# Tested on vRA 7.2 and CentOS Minimal 7.2. Not intended for production use.
+---
+- hosts: all
+  user: root
+  vars:
+    vra_appliance: vra72.vmware.local
+    vra_iaas_mgr: vra72-iaas-mgr.vmware.local
+  tasks:
+  - name: Install libselinux-python. See http://docs.ansible.com/ansible/intro_installation.html#managed-node-requirements
+    package:
+      name: libselinux-python
+      state: present
+
+  - name: Install epel repo
+    package:
+      name: epel-release
+
+  - name: Install required packages
+    package:
+      name: "{{ item }}"
+      state: present
+    with_items:
+      - open-vm-tools
+      - git
+      - ansible
+    become: true
+
+  - name: Install certs
+    copy:
+      src: kubeca.pem
+      dest: /etc/pki/ca-trust/source/anchors/
+
+  - name: Update cert store
+    shell: /usr/bin/update-ca-trust
+
+  - name: Ensure users exists
+    user:
+      name: "{{ item.name }}"
+      state: present
+      comment: "{{ item.comment }}"
+    with_items:
+      - { name: 'chris', comment: 'Chris'}
+      - { name: 'ansible', comment: 'Ansible'}
+
+  - name: Ensure required users is sudoer with no password required
+    lineinfile:
+      dest: /etc/sudoers
+      state: present
+      regexp: '^{{ item }} ALL\='
+      line: '{{ item }} ALL=(ALL) NOPASSWD:ALL'
+      validate: 'visudo -cf %s'
+    with_items:
+      - ansible
+      - chris
+      
+  - name: Setup root ssh key
+    user:
+      name: root
+      generate_ssh_key: yes
+      ssh_key_bits: 2048
+      ssh_key_file: .ssh/id_rsa
+
+  - name: Copy test.pem for root user
+    copy:
+      src: /root/.ssh/test.pem
+      dest: /root/.ssh/test.pem
+      mode: 0600
+
+  - name: Copy ssh config
+    copy:
+      src: config
+      dest: /root/.ssh/config
+      mode: 0400
+      
+  - name: Ensure ansible user accepts ssh key
+    authorized_key:
+      user: ansible
+      key: "{{ lookup('file', '/root/.ssh/test.pub') }}"
+      state: present
+
+  - name: Start open-vm-tools
+    service:
+      name: vmtoolsd
+      enabled: true
+      state: started
+
+  - name: Get VRA appliance cert thumbprint
+    shell: openssl s_client -connect {{ vra_appliance }}:443 < /dev/null 2>/dev/null | openssl x509 -fingerprint -noout -in /dev/stdin  | cut -d '=' -f 2
+    register: vra_appliance_cert_thumbprint
+
+  - name: Get VRA IaaS manager cert thumbprint
+    shell: openssl s_client -connect {{ vra_iaas_mgr }}:443 < /dev/null 2>/dev/null | openssl x509 -fingerprint -noout -in /dev/stdin  | cut -d '=' -f 2
+    register: vra_iaas_mgr_cert_thumbprint
+
+  - name: Download vRA prepare script
+    get_url:
+      url: https://{{ vra_appliance }}/software/download/prepare_vra_template.sh
+      dest: /tmp/
+
+  - name: Run vRA prepare script
+    shell: bash /tmp/prepare_vra_template.sh -m {{ vra_iaas_mgr }} -M 443 -a {{ vra_appliance }} -A 443 -j true -c vsphere -n -g {{ vra_appliance_cert_thumbprint.stdout }} -f {{ vra_iaas_mg
+r_cert_thumbprint.stdout }}
+    register: vra_prepare_script_results
+
+  - name: Display vra_prepare_script results
+    debug: "vRA prepare script results {{ vra_prepare_script_results.stdout }}"
