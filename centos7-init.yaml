@@ -98,8 +98,7 @@
       dest: /tmp/
 
   - name: Run vRA prepare script
-    shell: bash /tmp/prepare_vra_template.sh -m {{ vra_iaas_mgr }} -M 443 -a {{ vra_appliance }} -A 443 -j true -c vsphere -n -g {{ vra_appliance_cert_thumbprint.stdout }} -f {{ vra_iaas_mg
-r_cert_thumbprint.stdout }}
+    shell: bash /tmp/prepare_vra_template.sh -m {{ vra_iaas_mgr }} -M 443 -a {{ vra_appliance }} -A 443 -j true -c vsphere -n -g {{ vra_appliance_cert_thumbprint.stdout }} -f {{ vra_iaas_mgr_cert_thumbprint.stdout }}
     register: vra_prepare_script_results
 
   - name: Display vra_prepare_script results
